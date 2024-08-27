@@ -1,0 +1,4 @@
+([('StartOffseter',
+   '/Users/mariodominguez/Documents/MarioLiveSet '
+   'Project/Resourcers/StartOffseter/dist/StartOffseter',
+   'EXECUTABLE')],)
