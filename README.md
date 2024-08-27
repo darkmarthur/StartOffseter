@@ -95,6 +95,7 @@ To run this application, you will need the following dependencies installed:
 3. **Tkinter**: A built-in Python library that provides the graphical interface. It comes pre-installed with most Python distributions.
 4. **Subprocess**: A Python module used to interact with system-level commands (used for calling FFMPEG).
 5. **ScrolledText**: Part of Tkinter, it is used to create scrollable text areas within the application.
+6. You can use [Hexed.IT](https://hexed.it/) to monitor the hex values
   
 ---
 
