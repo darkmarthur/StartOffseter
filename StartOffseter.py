@@ -4,6 +4,9 @@ import tkinter as tk
 from tkinter import filedialog, ttk, scrolledtext
 import subprocess
 import os
+import librosa
+import numpy as np
+from threading import Thread
 
 def check_ffmpeg_installed():
     try:
@@ -28,10 +31,57 @@ def open_file_dialog():
     file_path = filedialog.askopenfilename(title="Select a File", filetypes=[("WAV files", "*.wav")])
     if file_path:
         log_message(f"Selected File: {file_path}")
+        start_loading()
+        Thread(target=process_file_thread, args=(file_path,)).start()
+
+def process_file_thread(file_path):
+    try:
+        bpm = None
+        if bpm_option.get() == 'auto':
+            bpm = calculate_bpm(file_path)  # Automatically calculate BPM
+        else:
+            bpm = parse_bpm_entry()
+
+        if bpm is not None:
+            bpm_entry.delete(0, tk.END)
+            bpm_entry.insert(0, f"{bpm:.2f} BPM")
+
         output_file_path = generate_output_filename(file_path)
         process_file(file_path, output_file_path)
         if fix_wav_hex_var.get():
             fixWavHex(output_file_path)
+    finally:
+        stop_loading()
+
+def calculate_bpm(file_path):
+    try:
+        # Load the audio file with librosa
+        y, sr = librosa.load(file_path, sr=None)
+        # Estimate tempo (BPM) and beat frames
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr, start_bpm=120)
+
+        # Tempo should be a scalar (single number)
+        if isinstance(tempo, (list, tuple, np.ndarray)):
+            tempo = tempo[0]  # Take the first element if it's an array
+
+        # Constrain BPM to a reasonable range for EDM (70-180 BPM)
+        tempo = max(70, min(180, tempo))
+        log_message(f"Detected tempo (BPM): {tempo:.2f}", "blue")  # Log the detected tempo
+        return tempo
+    except Exception as e:
+        log_message(f"Error calculating BPM: {str(e)}", "red")
+        return 120  # Default to 120 BPM if calculation fails
+
+def parse_bpm_entry():
+    bpm_text = bpm_entry.get().strip().upper()
+    try:
+        bpm_value = float(''.join(filter(str.isdigit, bpm_text)))
+        if bpm_value <= 0:
+            raise ValueError("BPM must be a positive number.")
+        return bpm_value
+    except ValueError:
+        log_message("Invalid BPM value. Defaulting to 120 BPM.", "red")
+        return 120  # Default to 120 BPM if input is invalid
 
 def generate_output_filename(input_file):
     if rename_file_var.get():
@@ -66,15 +116,7 @@ def process_file(input_file, output_file):
         channels = channels.strip()
 
         # Extract the BPM value from the bpm_entry text field
-        bpm_text = bpm_entry.get().strip().upper()  # Get the text and make it uppercase to handle variations like "bpm"
-        try:
-            # Remove non-digit characters to extract the numeric BPM value
-            bpm_value = float(''.join(filter(str.isdigit, bpm_text)))
-            if bpm_value <= 0:
-                raise ValueError("BPM must be a positive number.")
-        except ValueError:
-            log_message("Invalid BPM value. Defaulting to 120 BPM.", "red")
-            bpm_value = 120  # Default to 120 BPM if input is invalid
+        bpm_value = parse_bpm_entry()
 
         # Calculate beat duration in seconds
         beat_duration = 60 / bpm_value
@@ -128,6 +170,28 @@ def process_file(input_file, output_file):
         log_message(f"Error: {str(e)}", "red")
         log_message("OPERATION FAILED", "red")
 
+def convert_to_mp3(input_file):
+    try:
+        output_file = input_file.rsplit('.', 1)[0] + '.mp3'
+        command = [
+            'ffmpeg',
+            '-i', input_file,
+            '-b:a', '320k',  # Set the bitrate to 320 kbps
+            output_file
+        ]
+
+        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode == 0:
+            log_message(f"Successfully converted to MP3: {output_file}", "green")
+        else:
+            log_message(f"FFmpeg output:\n{result.stdout}", "black")
+            log_message(f"FFmpeg errors:\n{result.stderr}", "red")
+            log_message("MP3 conversion failed.", "red")
+    except subprocess.CalledProcessError as e:
+        log_message(f"Error during MP3 conversion: {e.stderr}", "red")
+    except Exception as e:
+        log_message(f"Error during MP3 conversion: {str(e)}", "red")
+
 def toggle_fields():
     state = tk.NORMAL if rename_file_var.get() else tk.DISABLED
     for entry in entries.values():
@@ -140,6 +204,12 @@ def log_message(message, color="white"):  # Default text color is white
     log_text.configure(state='disabled')
     log_text.yview(tk.END)  # Auto-scroll to the end
 
+def start_loading():
+    loading_label.grid(row=row_index+4, column=0, columnspan=2, pady=10)
+
+def stop_loading():
+    loading_label.grid_remove()
+
 root = tk.Tk()
 root.title("StartOffseter.app")
 
@@ -149,6 +219,7 @@ if not check_ffmpeg_installed():
 style = ttk.Style()
 style.configure('TButton', font=('Helvetica', 12))
 style.configure('TCheckbutton', font=('Helvetica', 12))
+style.configure('TRadiobutton', font=('Helvetica', 12))
 style.configure('TLabel', font=('Helvetica', 12))
 style.configure('TEntry', font=('Helvetica', 12))
 style.configure('TFrame', padding=10)
@@ -168,6 +239,13 @@ rename_file_var = tk.BooleanVar(value=True)
 rename_file_check = ttk.Checkbutton(main_frame, text="Rename File With Specifications", variable=rename_file_var, command=toggle_fields)
 rename_file_check.grid(row=1, column=0, columnspan=2, sticky='w', pady=5)
 
+# Radio buttons for BPM selection
+bpm_option = tk.StringVar(value='manual')
+bpm_manual_radio = ttk.Radiobutton(main_frame, text="Specify BPM", variable=bpm_option, value='manual')
+bpm_manual_radio.grid(row=2, column=0, sticky='w', pady=2)
+bpm_auto_radio = ttk.Radiobutton(main_frame, text="Auto-detect BPM", variable=bpm_option, value='auto')
+bpm_auto_radio.grid(row=2, column=1, sticky='w', pady=2)
+
 # Input fields
 fields = {
     "Key": "Cmin",
@@ -176,11 +254,11 @@ fields = {
     "Bit Rate": "24Bits",
     "Sample Rate": "48Khz",
     "Dither": "Triangular",
-    "Dedicated To": "LABEL"
+    "Dedicated To": "Family & Friends"
 }
 
 entries = {}
-row_index = 2
+row_index = 3
 for field, default_value in fields.items():
     label = ttk.Label(main_frame, text=field + ":")
     label.grid(row=row_index, column=0, sticky='w', pady=2)
@@ -217,15 +295,23 @@ log_text = scrolledtext.ScrolledText(main_frame, wrap=tk.WORD, height=15, state=
 log_text.grid(row=row_index+2, column=0, columnspan=2, pady=10, sticky='nsew')
 log_text.configure(foreground="white", background="#2e2e2e")  # Set text color to white and background to dark
 
-# Open File and Exit Buttons in a single row
+# Open File, Convert to MP3, and Exit Buttons in a single row
 button_frame = ttk.Frame(main_frame)
 button_frame.grid(row=row_index+3, column=0, columnspan=2, pady=10)
 
 open_button = ttk.Button(button_frame, text="Open File", command=open_file_dialog)
 open_button.pack(side=tk.LEFT, padx=10)
 
+convert_button = ttk.Button(button_frame, text="Convert to MP3", command=lambda: convert_to_mp3(filedialog.askopenfilename(title="Select a WAV File to Convert", filetypes=[("WAV files", "*.wav")])))
+convert_button.pack(side=tk.LEFT, padx=10)
+
 exit_button = ttk.Button(button_frame, text="Exit", command=root.quit)
 exit_button.pack(side=tk.RIGHT, padx=10)
+
+# Loading label (spinner)
+loading_label = ttk.Label(main_frame, text="Processing...", font=('Helvetica', 12))
+loading_label.grid(row=row_index+4, column=0, columnspan=2, pady=10)
+loading_label.grid_remove()  # Hide initially
 
 # Configure column weights for resizing
 main_frame.columnconfigure(0, weight=1)
