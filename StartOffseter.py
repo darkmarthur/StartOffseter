@@ -64,17 +64,17 @@ def bandpass_filter(y, sr, lowcut, highcut):
 
 def calculate_bpm(file_path):
     try:
-        # Load the entire audio file with librosa
-        y, sr = librosa.load(file_path, sr=None)
+        # Load a larger portion of the audio file (e.g., 60 seconds)
+        y, sr = librosa.load(file_path, sr=None, duration=60)
         
         # Apply a bandpass filter to focus on the kick drum frequencies
         y_filtered = bandpass_filter(y, sr, lowcut=50, highcut=150)
         
-        # Compute the onset strength over the entire track
+        # Compute the onset strength over the filtered track
         onset_env = librosa.onset.onset_strength(y=y_filtered, sr=sr, hop_length=512, aggregate=np.median)
 
         # Increase sensitivity for detecting peaks by adjusting height and distance parameters
-        peaks, _ = find_peaks(onset_env, height=np.mean(onset_env) * 0.5, distance=sr//3)
+        peaks, _ = find_peaks(onset_env, height=np.mean(onset_env) * 0.3, distance=sr//5)
 
         if len(peaks) < 2:
             log_message("Not enough beats detected to estimate BPM.", "red")
