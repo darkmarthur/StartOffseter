@@ -6,8 +6,8 @@ import subprocess
 import os
 import librosa
 import numpy as np
-from scipy.signal import butter, lfilter
 from threading import Thread
+from scipy.signal import butter, lfilter
 
 def check_ffmpeg_installed():
     try:
@@ -18,11 +18,11 @@ def check_ffmpeg_installed():
         return False
     return True
 
-def fixWavHex(output_file):
+def fix_wav_hex(output_file):
     with open(output_file, "rb+") as f:
         f.seek(20, 0)
-        formatID = f.read(2)
-        bint = int.from_bytes(formatID, byteorder='little', signed=False)
+        format_id = f.read(2)
+        bint = int.from_bytes(format_id, byteorder='little', signed=False)
         if bint == 65534:
             log_message(f"Fixing Hex for: {output_file}")
             f.seek(-2, 1)
@@ -37,57 +37,62 @@ def open_file_dialog():
 
 def process_file_thread(file_path):
     try:
-        bpm = None
+        bpm_value = None
         if bpm_option.get() == 'auto':
-            bpm = calculate_bpm_robust(file_path)  # Automatically calculate BPM with robust method
+            bpm_value = calculate_bpm_robust(file_path)  # Automatically calculate BPM with robust method
         else:
-            bpm = parse_bpm_entry()
+            bpm_value = parse_bpm_entry()
 
-        if bpm is not None:
+        if bpm_value is not None and bpm_value > 0:
             bpm_entry.delete(0, tk.END)
-            bpm_entry.insert(0, f"{bpm:.2f} BPM")
+            bpm_entry.insert(0, f"{bpm_value:.2f} BPM")
+        else:
+            log_message("Failed to detect BPM. Defaulting to 120 BPM.", "red")
+            bpm_entry.delete(0, tk.END)
+            bpm_entry.insert(0, "120 BPM")
 
         output_file_path = generate_output_filename(file_path)
         process_file(file_path, output_file_path)
         if fix_wav_hex_var.get():
-            fixWavHex(output_file_path)
+            fix_wav_hex(output_file_path)
     finally:
         stop_loading()
 
-def butter_bandpass(lowcut, highcut, fs, order=5):
-    nyquist = 0.5 * fs
-    low = lowcut / nyquist
-    high = highcut / nyquist
-    b, a = butter(order, [low, high], btype='band')
+def butter_lowpass(cutoff, fs, order=4):
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
     return b, a
 
-def bandpass_filter(data, lowcut, highcut, fs, order=5):
-    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
+def lowpass_filter(data, cutoff, fs, order=4):
+    b, a = butter_lowpass(cutoff, fs, order=order)
     y = lfilter(b, a, data)
-    y = np.clip(y, -1.0, 1.0)  # Ensure values remain within [-1, 1]
-    y = clean_audio_buffer(y)   # Clean buffer after filtering
     return y
 
-def clean_audio_buffer(y):
+def dynamic_range_compression(y, threshold=0.5, ratio=4.0):
+    """Apply dynamic range compression to emphasize the beat."""
+    with np.errstate(divide='ignore', invalid='ignore'):  # Suppress divide by zero warnings
+        gain = np.minimum(1.0, np.where(np.abs(y) > 0, (np.abs(y) / threshold) ** (1.0 - ratio), 0))
+    return y * gain
+
+def prepare_audio(y, sr):
+    """Prepare the audio signal by converting to mono, applying a lowpass filter, compression, and normalizing."""
+    if y.ndim > 1:  # If the audio is stereo, convert to mono
+        y = np.mean(y, axis=1)
+
+    # Apply a lowpass filter to focus on the bass (around 150 Hz)
+    y = lowpass_filter(y, cutoff=150, fs=sr, order=4)
+
+    # Apply dynamic range compression to make beats more prominent
+    y = dynamic_range_compression(y)
+
     y = np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
     if not np.all(np.isfinite(y)):
         log_message("Non-finite values found in audio buffer, cleaning up.", "orange")
         y = y[np.isfinite(y)]  # Remove any remaining non-finite values
-    return y
 
-def prepare_audio(y, sr):
-    """Prepare the audio signal by converting to mono, normalizing, and reducing amplitude."""
-    if y.ndim > 1:  # If the audio is stereo, convert to mono
-        y = np.mean(y, axis=1)
-
-    y = clean_audio_buffer(y)  # Clean buffer immediately after loading
-
-    # Remove silent parts from the audio
-    y, _ = librosa.effects.trim(y, top_db=30)  # Trim silent parts (adjust `top_db` as needed)
-
-    y = y / np.max(np.abs(y))  # Normalize to [-1, 1] range
-    y = y * 0.1  # Reduce amplitude drastically to prevent overflow
-    y = np.clip(y, -1.0, 1.0)  # Ensure no values exceed [-1, 1]
+    # Normalize to [-1, 1] range
+    y = y / np.max(np.abs(y))
 
     log_message(f"Audio buffer prepared, min: {np.min(y)}, max: {np.max(y)}", "black")
     
@@ -98,25 +103,20 @@ def calculate_bpm_robust(file_path):
         # Load the entire audio file
         y, sr = librosa.load(file_path, sr=None)
 
-        # Prepare the audio (convert to mono, normalize, and reduce amplitude)
+        # Prepare the audio (convert to mono, apply lowpass filter, and normalize)
         y = prepare_audio(y, sr)
 
-        # Apply a band-pass filter to focus on the kick drum frequencies (30-150 Hz)
-        y_filtered = bandpass_filter(y, 30.0, 150.0, sr)
+        # Compute the onset envelope (this is where we detect the beats)
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr, aggregate=np.median)
 
-        # Log the min and max values of the filtered signal for debugging
-        log_message(f"Filtered signal min: {np.min(y_filtered)}, max: {np.max(y_filtered)}", "black")
+        # Calculate tempo using beat_track function
+        tempo, _ = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
 
-        # Detect onset envelope (energy rise) focusing on the filtered signal
-        onset_env = librosa.onset.onset_strength(y=y_filtered, sr=sr)
-
-        # Calculate tempo using the entire onset envelope
-        tempo = librosa.beat.tempo(onset_envelope=onset_env, sr=sr)
-        bpm = np.median(tempo)
-
-        if bpm is not None:
-            log_message(f"Detected tempo (BPM): {bpm:.2f}", "blue")
-            return bpm
+        if tempo is not None and tempo > 0:
+            # Convert to scalar using item()
+            tempo = tempo.item()
+            log_message(f"Detected tempo (BPM): {tempo:.2f}", "blue")
+            return tempo
         else:
             log_message("Failed to detect BPM. Defaulting to 120 BPM.", "red")
             return 120
@@ -139,7 +139,7 @@ def generate_output_filename(input_file):
     if rename_file_var.get():
         key = key_entry.get()
         master_limit = master_limit_entry.get()
-        bpm = bpm_entry.get()
+        bpm_value = bpm_entry.get()
         bit_rate = bit_rate_entry.get()
         sample_rate = sample_rate_entry.get()
         dither = dither_entry.get()
@@ -147,7 +147,7 @@ def generate_output_filename(input_file):
         track_type = track_type_var.get()
 
         base_name = input_file.rsplit('.', 1)[0]
-        output_file_name = f"{base_name} | {track_type} {key} {master_limit} {bpm} {bit_rate} {sample_rate} {dither} | {dedicated_to}.wav"
+        output_file_name = f"{base_name} | {track_type} {key} {master_limit} {bpm_value} {bit_rate} {sample_rate} {dither} | {dedicated_to}.wav"
     else:
         base_name = input_file.rsplit('.', 1)[0]
         output_file_name = f"{base_name} - Offseted.wav"
