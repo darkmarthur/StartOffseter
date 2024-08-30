@@ -6,6 +6,7 @@ import subprocess
 import os
 import librosa
 import numpy as np
+from scipy.signal import find_peaks, butter, filtfilt
 from threading import Thread
 
 def check_ffmpeg_installed():
@@ -53,21 +54,50 @@ def process_file_thread(file_path):
     finally:
         stop_loading()
 
+def bandpass_filter(y, sr, lowcut, highcut):
+    nyquist = 0.5 * sr
+    low = lowcut / nyquist
+    high = highcut / nyquist
+    b, a = butter(1, [low, high], btype='band')
+    y_filtered = filtfilt(b, a, y)
+    return y_filtered
+
 def calculate_bpm(file_path):
     try:
-        # Load the audio file with librosa
+        # Load the entire audio file with librosa
         y, sr = librosa.load(file_path, sr=None)
-        # Estimate tempo (BPM) and beat frames
-        tempo, _ = librosa.beat.beat_track(y=y, sr=sr, start_bpm=120)
+        
+        # Apply a bandpass filter to focus on the kick drum frequencies
+        y_filtered = bandpass_filter(y, sr, lowcut=50, highcut=150)
+        
+        # Compute the onset strength over the entire track
+        onset_env = librosa.onset.onset_strength(y=y_filtered, sr=sr, hop_length=512, aggregate=np.median)
 
-        # Tempo should be a scalar (single number)
-        if isinstance(tempo, (list, tuple, np.ndarray)):
-            tempo = tempo[0]  # Take the first element if it's an array
+        # Increase sensitivity for detecting peaks by adjusting height and distance parameters
+        peaks, _ = find_peaks(onset_env, height=np.mean(onset_env) * 0.5, distance=sr//3)
 
-        # Constrain BPM to a reasonable range for EDM (70-180 BPM)
-        tempo = max(70, min(180, tempo))
-        log_message(f"Detected tempo (BPM): {tempo:.2f}", "blue")  # Log the detected tempo
-        return tempo
+        if len(peaks) < 2:
+            log_message("Not enough beats detected to estimate BPM.", "red")
+            return 120  # Default BPM if detection fails
+
+        # Calculate intervals between peaks
+        intervals = np.diff(peaks)
+
+        # Convert intervals to BPM
+        bpm_estimates = 60.0 / (intervals / sr)
+
+        # Filter out unrealistic BPM estimates
+        bpm_estimates = bpm_estimates[(bpm_estimates >= 70) & (bpm_estimates <= 180)]
+
+        if len(bpm_estimates) == 0:
+            log_message("No valid BPM estimates found.", "red")
+            return 120  # Default BPM if no valid estimates
+        
+        # Take the median of the BPM estimates
+        bpm = np.median(bpm_estimates)
+
+        log_message(f"Detected tempo (BPM): {bpm:.2f}", "blue")  # Log the detected tempo
+        return bpm
     except Exception as e:
         log_message(f"Error calculating BPM: {str(e)}", "red")
         return 120  # Default to 120 BPM if calculation fails
