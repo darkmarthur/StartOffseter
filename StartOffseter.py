@@ -6,7 +6,7 @@ import subprocess
 import os
 import librosa
 import numpy as np
-from scipy.signal import find_peaks, butter, filtfilt
+from scipy.signal import butter, lfilter
 from threading import Thread
 
 def check_ffmpeg_installed():
@@ -39,7 +39,7 @@ def process_file_thread(file_path):
     try:
         bpm = None
         if bpm_option.get() == 'auto':
-            bpm = calculate_bpm(file_path)  # Automatically calculate BPM
+            bpm = calculate_bpm_robust(file_path)  # Automatically calculate BPM with robust method
         else:
             bpm = parse_bpm_entry()
 
@@ -54,50 +54,72 @@ def process_file_thread(file_path):
     finally:
         stop_loading()
 
-def bandpass_filter(y, sr, lowcut, highcut):
-    nyquist = 0.5 * sr
+def butter_bandpass(lowcut, highcut, fs, order=5):
+    nyquist = 0.5 * fs
     low = lowcut / nyquist
     high = highcut / nyquist
-    b, a = butter(1, [low, high], btype='band')
-    y_filtered = filtfilt(b, a, y)
-    return y_filtered
+    b, a = butter(order, [low, high], btype='band')
+    return b, a
 
-def calculate_bpm(file_path):
+def bandpass_filter(data, lowcut, highcut, fs, order=5):
+    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
+    y = lfilter(b, a, data)
+    y = np.clip(y, -1.0, 1.0)  # Ensure values remain within [-1, 1]
+    y = clean_audio_buffer(y)   # Clean buffer after filtering
+    return y
+
+def clean_audio_buffer(y):
+    y = np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
+    if not np.all(np.isfinite(y)):
+        log_message("Non-finite values found in audio buffer, cleaning up.", "orange")
+        y = y[np.isfinite(y)]  # Remove any remaining non-finite values
+    return y
+
+def prepare_audio(y, sr):
+    """Prepare the audio signal by converting to mono, normalizing, and reducing amplitude."""
+    if y.ndim > 1:  # If the audio is stereo, convert to mono
+        y = np.mean(y, axis=1)
+
+    y = clean_audio_buffer(y)  # Clean buffer immediately after loading
+
+    # Remove silent parts from the audio
+    y, _ = librosa.effects.trim(y, top_db=30)  # Trim silent parts (adjust `top_db` as needed)
+
+    y = y / np.max(np.abs(y))  # Normalize to [-1, 1] range
+    y = y * 0.1  # Reduce amplitude drastically to prevent overflow
+    y = np.clip(y, -1.0, 1.0)  # Ensure no values exceed [-1, 1]
+
+    log_message(f"Audio buffer prepared, min: {np.min(y)}, max: {np.max(y)}", "black")
+    
+    return y
+
+def calculate_bpm_robust(file_path):
     try:
-        # Load a larger portion of the audio file (e.g., 60 seconds)
-        y, sr = librosa.load(file_path, sr=None, duration=60)
-        
-        # Apply a bandpass filter to focus on the kick drum frequencies
-        y_filtered = bandpass_filter(y, sr, lowcut=50, highcut=150)
-        
-        # Compute the onset strength over the filtered track
-        onset_env = librosa.onset.onset_strength(y=y_filtered, sr=sr, hop_length=512, aggregate=np.median)
+        # Load the entire audio file
+        y, sr = librosa.load(file_path, sr=None)
 
-        # Increase sensitivity for detecting peaks by adjusting height and distance parameters
-        peaks, _ = find_peaks(onset_env, height=np.mean(onset_env) * 0.3, distance=sr//5)
+        # Prepare the audio (convert to mono, normalize, and reduce amplitude)
+        y = prepare_audio(y, sr)
 
-        if len(peaks) < 2:
-            log_message("Not enough beats detected to estimate BPM.", "red")
-            return 120  # Default BPM if detection fails
+        # Apply a band-pass filter to focus on the kick drum frequencies (30-150 Hz)
+        y_filtered = bandpass_filter(y, 30.0, 150.0, sr)
 
-        # Calculate intervals between peaks
-        intervals = np.diff(peaks)
+        # Log the min and max values of the filtered signal for debugging
+        log_message(f"Filtered signal min: {np.min(y_filtered)}, max: {np.max(y_filtered)}", "black")
 
-        # Convert intervals to BPM
-        bpm_estimates = 60.0 / (intervals / sr)
+        # Detect onset envelope (energy rise) focusing on the filtered signal
+        onset_env = librosa.onset.onset_strength(y=y_filtered, sr=sr)
 
-        # Filter out unrealistic BPM estimates
-        bpm_estimates = bpm_estimates[(bpm_estimates >= 70) & (bpm_estimates <= 180)]
+        # Calculate tempo using the entire onset envelope
+        tempo = librosa.beat.tempo(onset_envelope=onset_env, sr=sr)
+        bpm = np.median(tempo)
 
-        if len(bpm_estimates) == 0:
-            log_message("No valid BPM estimates found.", "red")
-            return 120  # Default BPM if no valid estimates
-        
-        # Take the median of the BPM estimates
-        bpm = np.median(bpm_estimates)
-
-        log_message(f"Detected tempo (BPM): {bpm:.2f}", "blue")  # Log the detected tempo
-        return bpm
+        if bpm is not None:
+            log_message(f"Detected tempo (BPM): {bpm:.2f}", "blue")
+            return bpm
+        else:
+            log_message("Failed to detect BPM. Defaulting to 120 BPM.", "red")
+            return 120
     except Exception as e:
         log_message(f"Error calculating BPM: {str(e)}", "red")
         return 120  # Default to 120 BPM if calculation fails
@@ -129,6 +151,10 @@ def generate_output_filename(input_file):
     else:
         base_name = input_file.rsplit('.', 1)[0]
         output_file_name = f"{base_name} - Offseted.wav"
+
+    # Check if file exists and log if it will be replaced
+    if os.path.exists(output_file_name):
+        log_message(f"Output file {output_file_name} already exists. Replacing it.", "orange")
     
     return output_file_name
 
