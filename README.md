@@ -107,6 +107,13 @@ This project was developed with the assistance of **ChatGPT**, an AI language mo
 
 **Enjoy creating and performing with fewer technical hiccups! 🎧**
 
-cd /Users/mariodominguez/Documents/MarioLiveSet\ Project/Resourcers/StartOffseter/StartOffseter
-source StartOffseter/bin/activate
-StartOffseter.py
+cd /Users/mariodominguez/Documents/MarioLiveSet\ Project/Resourcers/StartOffseter/StartOffseter && source StartOffseter/bin/activate && python3 StartOffseter.py
+
+
+found three audio libraries with python bindings that extract features from audio. They are not that easy to install since they are really in C and you need to properly compile the python bindings and add them to the path to import, but here they are:
+
+Yaafe
+Aubio
+LibXtract
+Essentia
+echo next remix
