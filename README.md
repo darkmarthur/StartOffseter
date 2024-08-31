@@ -106,3 +106,7 @@ This project was developed with the assistance of **ChatGPT**, an AI language mo
 ---
 
 **Enjoy creating and performing with fewer technical hiccups! 🎧**
+
+cd /Users/mariodominguez/Documents/MarioLiveSet\ Project/Resourcers/StartOffseter/StartOffseter
+source StartOffseter/bin/activate
+StartOffseter.py

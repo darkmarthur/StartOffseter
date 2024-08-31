@@ -69,12 +69,23 @@ class AudioProcessor:
     def calculate_bpm_robust(file_path, log_text):
         try:
             y, sr = librosa.load(file_path, sr=None)
-            y = AudioProcessor.prepare_audio(y, sr)
-            onset_env = librosa.onset.onset_strength(y=y, sr=sr, aggregate=np.median)
+            Utility.log_message(log_text, f"Loaded audio file with sample rate: {sr}", "blue")
+
+            # Separate harmonic and percussive components
+            y_harmonic, y_percussive = librosa.effects.hpss(y)
+            Utility.log_message(log_text, "Performed Harmonic-Percussive Separation", "blue")
+
+            # Use the percussive component for onset detection
+            onset_env = librosa.onset.onset_strength(y=y_percussive, sr=sr, aggregate=np.median)
+            Utility.log_message(log_text, f"Calculated onset envelope with shape: {onset_env.shape}", "blue")
+
+            # Beat tracking using onset envelope
             tempo, _ = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
+            Utility.log_message(log_text, f"Detected raw tempo: {tempo}", "blue")
+
             if tempo is not None and tempo.size > 0:
                 tempo = float(tempo.item())  # Extract scalar value and convert to float
-                Utility.log_message(log_text, f"Detected tempo (BPM): {tempo:.2f}", "blue")
+                Utility.log_message(log_text, f"Detected tempo (BPM): {tempo:.2f}", "green")
                 return tempo
             else:
                 Utility.log_message(log_text, "Failed to detect BPM. Defaulting to 120 BPM.", "red")
@@ -288,7 +299,7 @@ class StartOffseterApp(tk.Tk):
         button_frame = ttk.Frame(self.main_frame)
         button_frame.grid(row=row_index+3, column=0, columnspan=2, pady=10)
 
-        ttk.Button(button_frame, text="Open File", command=self.open_file_dialog).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="Process WAV", command=self.open_file_dialog).pack(side=tk.LEFT, padx=10)
         ttk.Button(button_frame, text="Convert to MP3", command=self.convert_to_mp3).pack(side=tk.LEFT, padx=10)
         ttk.Button(button_frame, text="Exit", command=self.quit).pack(side=tk.RIGHT, padx=10)
 
