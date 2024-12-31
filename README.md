@@ -13,24 +13,24 @@ Additionally, the tool can **edit WAV file headers (HEX values)** to fix compati
 ### Why Add Silence? 
 
 Adding silence to the beginning of a track is useful for:
-- **Playback issues**: Adding a beat or two of silence prevents some playback issues in some stremaing services when audio strats at 0:00 seconds. This happens with Soundcloud, Spotify, car audio systems, and some media players. It prevents getting the first second clipped or audible "clicks" & "pops".
-- **Rekorbox Analysis**: Sometimes when audio strats at 0:00 seconds, Rekordbox fails matching the beat grid of your track with your actual beat hits
-- **Dont mess up your arrangement**: Inserting the silence direclty in your DAW arrangement will mess your original proyect abras and compass, it will also mess up coordinated LFO start times & synced effects like delays, even some plugins and VSTis have this internally
+- **Playback issues**: Adding a beat or two of silence prevents some playback issues in some streaming services when audio starts at 0:00 seconds. This happens with Soundcloud, Spotify, car audio systems, and some media players. It prevents getting the first second clipped or audible "clicks" & "pops".
+- **Rekorbox Analysis**: Sometimes when audio starts at 0:00 seconds, Rekordbox fails to match the beat grid of your track with your actual beat hits
+- **Dont mess up your arrangement**: Inserting the silence directly in your DAW arrangement will mess up your original project bars and compass, it will also mess up coordinated LFO start times & synced effects like delays, even some plugins and VSTis have this internally
 
 ## Main Features
 
 - **Add Silence by Beats**: Automatically calculates and adds silence at the beginning of the track based on the BPM you specify. it 
-- **WAV HEX Fixing**: Ensures compatibility with Pioneer CDJs by correcting the HEX values of WAV files, preventing errors during playback. Since 
+- **WAV HEX Fixing**: Ensures compatibility with Pioneer CDJs by correcting the HEX values of WAV files, and preventing errors during playback. Since 
 - **Customizable Number of Silent Beats**: You can specify the number of beats to add, allowing for tailored silence additions to suit your mixing style.
 - **File Renaming**: Optionally, rename files with key specifications such as BPM, key, bit rate, sample rate, etc.
   
 ## Warnings
 
-- This applition will preserve your track quality it won't downgrade the waves neither the phse your track. It uses FFMPEG to encode the final WAV file in PCM Signed 24-bit little-endian (pcm_s24le)
+- This application will preserve your track quality it won't downgrade the waves or the phase of your track. It uses FFMPEG to encode the final WAV file in PCM Signed 24-bit little-endian (pcm_s24le)
   - It will respect your WAV sample rate
   - It will respect your WAV channels
-  - Result WAV will be 24 bits of Bit Rate
-- If the option "WAV HEX Fixing" is unchecked, Pionner players wont be able to playback the final WAV file (Pionner's fault... not mine...) [See "The Infamous "E-8305: Unsupported File Format"](https://www.reddit.com/r/Rekordbox/comments/jfs7dd/the_infamous_e8305_unsupported_file_format_almost/)
+  - Result in WAV will be 24 bits of Bit Rate
+- If the option "WAV HEX Fixing" is unchecked, Pioneer players won't be able to playback the final WAV file (Pioneer's fault... not mine...) [See "The Infamous "E-8305: Unsupported File Format"](https://www.reddit.com/r/Rekordbox/comments/jfs7dd/the_infamous_e8305_unsupported_file_format_almost/)
 - This project has been only tested in MAC OS
 
 ## Tools Behind the Scenes
