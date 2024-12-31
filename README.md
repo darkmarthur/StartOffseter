@@ -96,12 +96,6 @@ To run this application, you will need the following dependencies installed:
 4. **Subprocess**: A Python module used to interact with system-level commands (used for calling FFMPEG).
 5. **ScrolledText**: Part of Tkinter, it is used to create scrollable text areas within the application.
 6. You can use [Hexed.IT](https://hexed.it/) to monitor the hex values
-  
----
-
-## ChatGPT participation
-
-This project was developed with the assistance of **ChatGPT**, an AI language model created by OpenAI. It helped streamline the design of the application, making it more accessible for DJs and music producers. I provided guidance on integrating silence insertion logic based on BPM, fixing WAV HEX values, and improving the user experience by refining the user interface and ensuring compatibility with professional audio equipment like Pioneer CDJs.
 
 ---
 
